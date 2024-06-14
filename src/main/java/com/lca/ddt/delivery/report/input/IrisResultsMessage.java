@@ -369,4 +369,14 @@ public class IrisResultsMessage {
         this.msgSequenceID = value;
     }
 
+	@Override
+	public String toString() {
+		return "IrisResultsMessage [event=" + event + ", accessionNum=" + accessionNum + ", reportNum=" + reportNum
+				+ ", reportSpecimen=" + reportSpecimen + ", panel=" + panel + ", report=" + report
+				+ ", concurrentCases=" + concurrentCases + ", cancelledPanel=" + cancelledPanel + ", anyResults="
+				+ anyResults + ", attachedPDF=" + attachedPDF + ", msgSequenceID=" + msgSequenceID + "]";
+	}
+    
+    
+
 }

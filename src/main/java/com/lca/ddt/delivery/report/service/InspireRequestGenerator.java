@@ -1,16 +1,22 @@
 package com.lca.ddt.delivery.report.service;
+import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import com.fasterxml.jackson.core.JsonProcessingException;
+
 import com.lca.ddt.delivery.report.input.AccessionSpecimen;
 import com.lca.ddt.delivery.report.input.Address;
 import com.lca.ddt.delivery.report.input.ConcurrentCase;
+import com.lca.ddt.delivery.report.input.DOB;
+import com.lca.ddt.delivery.report.input.EVENTTYPE;
 import com.lca.ddt.delivery.report.input.Image;
 import com.lca.ddt.delivery.report.input.IrisResultsMessage;
 import com.lca.ddt.delivery.report.input.Panel;
@@ -22,6 +28,7 @@ import com.lca.ddt.delivery.report.input.ReagentsUsed;
 import com.lca.ddt.delivery.report.input.Report;
 import com.lca.ddt.delivery.report.input.ReportHeader;
 import com.lca.ddt.delivery.report.input.ReportText;
+import com.lca.ddt.delivery.report.input.ReportTextType;
 import com.lca.ddt.delivery.report.input.SpecimenTest;
 import com.lca.ddt.delivery.report.input.SpecimenTestText;
 import com.lca.ddt.delivery.report.input.SpecimenText;
@@ -49,6 +56,10 @@ import com.lca.ddt.delivery.report.inspire.model.SpecialtyType;
 import com.lca.ddt.delivery.report.inspire.model.SpecimenType;
 import com.lca.ddt.delivery.report.util.DateConverter;
 
+import jakarta.xml.bind.JAXBContext;
+import jakarta.xml.bind.JAXBException;
+import jakarta.xml.bind.Marshaller;
+@Service
 public class InspireRequestGenerator {
 
 	public Inspire generateInspirePayload(IrisResultsMessage irisInputMessage) {
@@ -218,6 +229,7 @@ public class InspireRequestGenerator {
 		patient.setName(name);
 
 		// Address
+		if(irisInputMessage.getReport().getReportHeader().getPAddr()!=null) {
 		AddressType address = new AddressType();
 		if (StringUtils.hasText(irisInputMessage.getReport().getReportHeader().getPAddr().getAdress1())) {
 			address.setStreet(irisInputMessage.getReport().getReportHeader().getPAddr().getAdress1());
@@ -238,7 +250,7 @@ public class InspireRequestGenerator {
 			}
 		}
 		patient.setAddress(address);
-
+		}
 		// Phone
 		if (StringUtils.hasText((irisInputMessage.getReport().getReportHeader().getPPhone()))) {
 			String phone = irisInputMessage.getReport().getReportHeader().getPPhone();
@@ -438,8 +450,8 @@ public class InspireRequestGenerator {
 
 		// Setting physician
 		PhysicianType physician = new PhysicianType();
-		if (List.of(reportHeader.getOrderingPhyFName(), reportHeader.getOrderingPhyMName(),
-				reportHeader.getOrderingPhyLName()).stream().anyMatch(str -> str != null && !str.isEmpty())) {
+		if (reportHeader!=null && (reportHeader.getOrderingPhyFName()!=null||
+				reportHeader.getPMiddleName()!=null&&reportHeader.getOrderingPhyFName()!=null)) {
 			NameType phyName = new NameType();
 			phyName.setFirst(reportHeader.getOrderingPhyFName());
 			phyName.setMiddle(reportHeader.getPMiddleName());
@@ -464,12 +476,6 @@ public class InspireRequestGenerator {
 		account.setPhysician(physician);
 
 		return account;
-	}
-
-	public static void main(String[] args) throws JsonProcessingException {
-
-		InspireRequestGenerator inspireRequestGenerator = new InspireRequestGenerator();
-
 	}
 
 	public AdvancedStringType getAdvanceStringType(String text) {
@@ -506,7 +512,7 @@ public class InspireRequestGenerator {
 		specialty.setBrand(labInfoSystemCd.isEmpty() ? "Integrated Oncology" : labInfoSystemCd);
 
 		// Set title based on complex conditions
-		if (!reportTitle.isEmpty()) {
+		if (StringUtils.hasText(reportTitle)) {
 			specialty.setTitle(reportTitle);
 		} else if ("CirculatingTumor".equals(templateId)) {
 			setTitleForCirculatingTumor(specialty, requestMessage.getReport().getReportTexts());
@@ -666,7 +672,9 @@ public class InspireRequestGenerator {
 			comment.setText(getAdvanceStringType(reportText.getValue()));
 			specialty.getComments().add(comment);
 		}
-
+		
+       if(requestMessage.getReport()
+				.getTestingAndReportingSites()!=null) {
 		for (TestingReportingSiteDetails testingReportingSiteDetails : requestMessage.getReport()
 				.getTestingAndReportingSites().getProfessionalComponent()) {
 			CommentType comment = new CommentType();
@@ -674,6 +682,7 @@ public class InspireRequestGenerator {
 			comment.setText(getAdvanceStringType(buildProfessionalComponent(testingReportingSiteDetails)));
 			specialty.getComments().add(comment);
 		}
+       }
 
 	}
 
@@ -726,7 +735,7 @@ public class InspireRequestGenerator {
 					orderItemTypes.add(orderItemType);
 				}
 			}
-
+		}
 			Identifier identifier = new Identifier();
 			identifier.setTitle("Title");
 			identifier.setTemplateId("TemplateId");
@@ -748,7 +757,7 @@ public class InspireRequestGenerator {
 				}
 			}
 
-		}
+		
 		return orderItemTypes;
 	}
 
@@ -756,14 +765,14 @@ public class InspireRequestGenerator {
 		List<OrderType> ordersList = new ArrayList<>();
 
 		for (PanelResult panelResults : requestMessage.getPanel().getPanelResults()) {
-			if (!panelResults.getParamName().equals("Disclaimers")) {
+			if (!"Disclaimers".equals(panelResults.getParamName())) {
 				OrderType order = new OrderType();
 
-				if (!panelResults.getDisplayName().isEmpty()) {
+				if (StringUtils.hasText(panelResults.getDisplayName())) {
 					order.setNumber(panelResults.getDisplayName());
 				}
 				order.setName(panelResults.getParamName());
-				if (!requestMessage.getPanel().getCaseNum().isEmpty()) {
+				if (StringUtils.hasText(requestMessage.getPanel().getCaseNum())) {
 					order.setCaseId(requestMessage.getPanel().getCaseNum());
 				}
 
@@ -771,6 +780,7 @@ public class InspireRequestGenerator {
 
 				// Processing $signedBy
 				String signedByLine = requestMessage.getReport().getSignedByLine();
+				if(StringUtils.hasText(signedByLine)) {
 				String[] signed = signedByLine.split("~");
 				SignedByType signedBy = new SignedByType();
 				signedBy.setDegree(signed[4]);
@@ -796,8 +806,9 @@ public class InspireRequestGenerator {
 				signedBy.setESignatureComment(requestMessage.getReport().getESignatureComment());
 
 				order.getSignedBy().add(signedBy);
+				}
 				// Processing status
-				if (panelResults.isWasSubmitted()) {
+				if (panelResults.isWasSubmitted()!=null&&panelResults.isWasSubmitted().booleanValue()) {
 					order.setStatus("WAS SUBMITTED");
 				} else {
 					order.setStatus("WAS NOT SUBMITTED");
@@ -806,7 +817,7 @@ public class InspireRequestGenerator {
 				// Processing Disclaimers
 				List<CommentType> disclaimersList = new ArrayList<>();
 				for (PanelResult panelResults1 : requestMessage.getPanel().getPanelResults()) {
-					if (panelResults1.getParamName().equals("Disclaimers")) {
+					if (StringUtils.hasText(panelResults1.getParamName())&& panelResults1.getParamName().equals("Disclaimers")) {
 						for (TestResultValue testResultValues : panelResults1.getTestResultValues()) {
 							CommentType disclaimer = new CommentType();
 							disclaimer.setName(testResultValues.getKey());
@@ -856,35 +867,35 @@ public class InspireRequestGenerator {
 				for (AccessionSpecimen reportSpecimen : requestMessage.getReportSpecimen()) {
 
 					SpecimenType specimen = new SpecimenType();
-					if (!requestMessage.getReportSpecimen().isEmpty()) {
+					if (requestMessage.getReportSpecimen()!=null) {
 						specimen.setName(reportSpecimen.getSpecimenType());
 					}
-					if (!reportSpecimen.getSpecimenId().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getSpecimenId())) {
 						specimen.setNumber(reportSpecimen.getSpecimenId());
 					}
-					if (!reportSpecimen.getSpecimenDescr().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getSpecimenDescr())) {
 						specimen.setDesc(getAdvanceStringType(reportSpecimen.getSpecimenDescr()));
 					}
-					if (!reportSpecimen.getSpecimenSiteCd().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getSpecimenSiteCd())) {
 						specimen.setBodySiteCode(reportSpecimen.getSpecimenSiteCd());
 					}
-					if (!reportSpecimen.getSpecimenSiteDescr().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getSpecimenSiteDescr())) {
 						specimen.setBodySiteDesc(reportSpecimen.getSpecimenSiteDescr());
 					}
-					if (!reportSpecimen.getClientSpecimenID().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getClientSpecimenID())) {
 						specimen.setClientSpecimenID(reportSpecimen.getClientSpecimenID());
 					}
-					if (!reportSpecimen.getSpecimenTransportDescr().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getSpecimenTransportDescr())) {
 						specimen.setTransportDesc(reportSpecimen.getSpecimenTransportDescr());
 					}
 
 					// Processing fixative
 					FixativeType fixative = new FixativeType();
-					if (!reportSpecimen.getTypeOfFixative().isEmpty()) {
+					if (StringUtils.hasText(reportSpecimen.getTypeOfFixative())) {
 						fixative.setFixativeType(reportSpecimen.getTypeOfFixative());
 					}
-					if (reportSpecimen.getTimeToFixationKey().equalsIgnoreCase("General")
-							|| reportSpecimen.getTimeToFixationKey().equalsIgnoreCase("SPECIFIC")) {
+					if ("General".equalsIgnoreCase(reportSpecimen.getTimeToFixationKey())
+							|| "SPECIFIC".equalsIgnoreCase(reportSpecimen.getTimeToFixationKey())) {
 						String timeToFixation = "";
 						if (reportSpecimen.getTimeToFixationHH() != null
 								&& !reportSpecimen.getTimeToFixationHH().equals("0")) {
@@ -900,8 +911,8 @@ public class InspireRequestGenerator {
 							fixative.setTimeToFixation("Not Provided");
 						}
 					}
-					if (reportSpecimen.getDurationOfFixativeKey().equalsIgnoreCase("General")
-							|| reportSpecimen.getDurationOfFixativeKey().equalsIgnoreCase("SPECIFIC")) {
+					if ("General".equalsIgnoreCase(reportSpecimen.getTimeToFixationKey())
+							|| "SPECIFIC".equalsIgnoreCase(reportSpecimen.getTimeToFixationKey())) {
 						String fixativeDuration = "";
 						if (reportSpecimen.getFixativeDurationHH() != null
 								&& !reportSpecimen.getFixativeDurationHH().equals("0")) {
@@ -919,14 +930,15 @@ public class InspireRequestGenerator {
 					}
 					// Processing fixativeDisclaimer
 					for (SpecimenText specimenText : reportSpecimen.getSpecimenText()) {
-						if (specimenText.getKey().equals("FIXATIVEDISCLAIMER")) {
+						if ("FIXATIVEDISCLAIMER".equals( specimenText.getKey().name())) {
 							fixative.setFixativeDisclaimer(specimenText.getValue());
 							break; // Assuming only one disclaimer is processed
 						}
 					}
 					specimen.setFixative(fixative);
-					if (!fixative.getFixativeType().isEmpty() || !fixative.getTimeToFixation().isEmpty()
-							|| !fixative.getFixativeDuration().isEmpty() || fixative.getFixativeDisclaimer() != null) {
+					if (StringUtils.hasText(fixative.getFixativeType())||StringUtils.hasText(fixative.getTimeToFixation())
+							||StringUtils.hasText(fixative.getFixativeDuration()) ||
+							fixative.getFixativeDisclaimer()!=null) {
 						specimensList.add(specimen);
 					}
 
@@ -999,28 +1011,29 @@ public class InspireRequestGenerator {
 			// Processing reportSpecimen
 			List<SpecimenType> specimensList = new ArrayList<>();
 			for (AccessionSpecimen reportSpecimen : cancelledPanel.getReportSpecimen()) {
-				SpecimenType specimens = new SpecimenType();
-				if (!reportSpecimen.getSpecimenType().isEmpty()) {
-					specimens.setName(reportSpecimen.getSpecimenType());
+				SpecimenType specimen = new SpecimenType();
+				if (requestMessage.getReportSpecimen()!=null) {
+					specimen.setName(reportSpecimen.getSpecimenType());
 				}
-				if (!reportSpecimen.getSpecimenId().isEmpty()) {
-					specimens.setNumber(reportSpecimen.getSpecimenId());
+				if (StringUtils.hasText(reportSpecimen.getSpecimenId())) {
+					specimen.setNumber(reportSpecimen.getSpecimenId());
 				}
-				if (!reportSpecimen.getSpecimenDescr().isEmpty()) {
-					specimens.setDesc(getAdvanceStringType(reportSpecimen.getSpecimenDescr()));
+				if (StringUtils.hasText(reportSpecimen.getSpecimenDescr())) {
+					specimen.setDesc(getAdvanceStringType(reportSpecimen.getSpecimenDescr()));
 				}
-				if (!reportSpecimen.getSpecimenSiteCd().isEmpty()) {
-					specimens.setBodySiteCode(reportSpecimen.getSpecimenSiteCd());
+				if (StringUtils.hasText(reportSpecimen.getSpecimenSiteCd())) {
+					specimen.setBodySiteCode(reportSpecimen.getSpecimenSiteCd());
 				}
-				if (!reportSpecimen.getSpecimenSiteDescr().isEmpty()) {
-					specimens.setBodySiteDesc(reportSpecimen.getSpecimenSiteDescr());
+				if (StringUtils.hasText(reportSpecimen.getSpecimenSiteDescr())) {
+					specimen.setBodySiteDesc(reportSpecimen.getSpecimenSiteDescr());
 				}
-				if (!reportSpecimen.getClientSpecimenID().isEmpty()) {
-					specimens.setClientSpecimenID(reportSpecimen.getClientSpecimenID());
+				if (StringUtils.hasText(reportSpecimen.getClientSpecimenID())) {
+					specimen.setClientSpecimenID(reportSpecimen.getClientSpecimenID());
 				}
-				if (!reportSpecimen.getSpecimenTransportDescr().isEmpty()) {
-					specimens.setTransportDesc(reportSpecimen.getSpecimenTransportDescr());
+				if (StringUtils.hasText(reportSpecimen.getSpecimenTransportDescr())) {
+					specimen.setTransportDesc(reportSpecimen.getSpecimenTransportDescr());
 				}
+
 
 				// Processing fixative information
 				FixativeType fixative = new FixativeType();
@@ -1071,13 +1084,13 @@ public class InspireRequestGenerator {
 					}
 				}
 				fixative.setFixativeDisclaimer(fixativeDisclaimer);
-				specimens.setFixative(fixative);
+				specimen.setFixative(fixative);
 
-				if (!specimens.getName().isEmpty() || !specimens.getNumber().isEmpty() || specimens.getDesc() != null
-						|| !specimens.getBodySiteCode().isEmpty() || !specimens.getBodySiteDesc().isEmpty()
-						|| !specimens.getClientSpecimenID().isEmpty() || !specimens.getTransportDesc().isEmpty()
+				if (!specimen.getName().isEmpty() || !specimen.getNumber().isEmpty() || specimen.getDesc() != null
+						|| !specimen.getBodySiteCode().isEmpty() || !specimen.getBodySiteDesc().isEmpty()
+						|| !specimen.getClientSpecimenID().isEmpty() || !specimen.getTransportDesc().isEmpty()
 						|| fixative != null) {
-					specimensList.add(specimens);
+					specimensList.add(specimen);
 				}
 			}
 
@@ -1107,6 +1120,7 @@ public class InspireRequestGenerator {
 			}
 
 			// Setting status from specimen tests
+			if(reportSpecimen.getSpecimenTests()!=null&&!reportSpecimen.getSpecimenTests().isEmpty()) {
 			orders.setStatus(reportSpecimen.getSpecimenTests().get(0).getStatus().value());
 
 			// Adding attached images
@@ -1121,7 +1135,7 @@ public class InspireRequestGenerator {
 				}
 				orders.getAttachedImages().add(attachedImages);
 			}
-
+			
 			// Adding test result values
 			for (TestResultValue testResultValues : reportSpecimen.getSpecimenTests().get(0).getTestResultValues()) {
 				CommentType comments = new CommentType();
@@ -1142,34 +1156,36 @@ public class InspireRequestGenerator {
 				}
 			}
 			orders.getResults().add(results);
+			}
 
 			// Adding specimens
 			SpecimenType specimens = new SpecimenType();
-			if (!reportSpecimen.getSpecimenType().isEmpty()) {
+			if (requestMessage.getReportSpecimen()!=null) {
 				specimens.setName(reportSpecimen.getSpecimenType());
 			}
-			if (!reportSpecimen.getSpecimenId().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenId())) {
 				specimens.setNumber(reportSpecimen.getSpecimenId());
 			}
-			if (!reportSpecimen.getSpecimenDescr().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenDescr())) {
 				specimens.setDesc(getAdvanceStringType(reportSpecimen.getSpecimenDescr()));
 			}
-			if (!reportSpecimen.getSpecimenSiteCd().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenSiteCd())) {
 				specimens.setBodySiteCode(reportSpecimen.getSpecimenSiteCd());
 			}
-			if (!reportSpecimen.getSpecimenSiteDescr().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenSiteDescr())) {
 				specimens.setBodySiteDesc(reportSpecimen.getSpecimenSiteDescr());
 			}
-			if (!reportSpecimen.getClientSpecimenID().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getClientSpecimenID())) {
 				specimens.setClientSpecimenID(reportSpecimen.getClientSpecimenID());
 			}
-			if (!reportSpecimen.getSpecimenTransportDescr().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenTransportDescr())) {
 				specimens.setTransportDesc(reportSpecimen.getSpecimenTransportDescr());
 			}
 
+
 			// Adding fixative information
 			FixativeType fixative = new FixativeType();
-			if (!reportSpecimen.getTypeOfFixative().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getTypeOfFixative())) {
 				fixative.setFixativeType(reportSpecimen.getTypeOfFixative());
 			}
 			if ("General".equalsIgnoreCase(reportSpecimen.getTimeToFixationKey())
@@ -1193,7 +1209,7 @@ public class InspireRequestGenerator {
 			}
 			specimens.setFixative(fixative);
 
-			if (!reportSpecimen.getLabCorpSpecimenId().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getLabCorpSpecimenId())) {
 				specimens.setLabCorpSpecimenID(reportSpecimen.getLabCorpSpecimenId());
 			}
 
@@ -1321,29 +1337,25 @@ public class InspireRequestGenerator {
 		List<SpecimenType> specimensList = new ArrayList<>();
 		for (AccessionSpecimen reportSpecimen : requestMessage.getReportSpecimen()) {
 			SpecimenType specimens = new SpecimenType();
-			if (!reportSpecimen.getSpecimenType().isEmpty()) {
+			if (requestMessage.getReportSpecimen()!=null) {
 				specimens.setName(reportSpecimen.getSpecimenType());
-			} else {
-				specimens.setName("");
 			}
-			if (!reportSpecimen.getSpecimenId().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenId())) {
 				specimens.setNumber(reportSpecimen.getSpecimenId());
-			} else {
-				specimens.setNumber("");
 			}
-			if (!reportSpecimen.getSpecimenDescr().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenDescr())) {
 				specimens.setDesc(getAdvanceStringType(reportSpecimen.getSpecimenDescr()));
 			}
-			if (!reportSpecimen.getSpecimenSiteCd().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenSiteCd())) {
 				specimens.setBodySiteCode(reportSpecimen.getSpecimenSiteCd());
 			}
-			if (!reportSpecimen.getSpecimenSiteDescr().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenSiteDescr())) {
 				specimens.setBodySiteDesc(reportSpecimen.getSpecimenSiteDescr());
 			}
-			if (!reportSpecimen.getClientSpecimenID().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getClientSpecimenID())) {
 				specimens.setClientSpecimenID(reportSpecimen.getClientSpecimenID());
 			}
-			if (!reportSpecimen.getSpecimenTransportDescr().isEmpty()) {
+			if (StringUtils.hasText(reportSpecimen.getSpecimenTransportDescr())) {
 				specimens.setTransportDesc(reportSpecimen.getSpecimenTransportDescr());
 			}
 
@@ -1431,7 +1443,8 @@ public class InspireRequestGenerator {
 		labs.setCode(requestMessage.getReport().getReportHeader().getPerfLabAddr().getLabCode());
 
 		// Extract Address Information
-		if (!requestMessage.getReport().getSignedByAddr().getAdress1().isEmpty()) {
+		if (requestMessage.getReport().getSignedByAddr()!=null&&
+				requestMessage.getReport().getSignedByAddr().getAdress1()!=null) {
 			AddressType signedByAddress = new AddressType();
 			signedByAddress.setStreet(requestMessage.getReport().getSignedByAddr().getAdress1());
 			if (!requestMessage.getReport().getSignedByAddr().getAddress2().isEmpty()) {
@@ -1448,23 +1461,25 @@ public class InspireRequestGenerator {
 			}
 			labs.setAddress(signedByAddress);
 		} else {
+			if(requestMessage.getReport().getReportHeader().getPerfLabAddr()!=null) {
 			AddressType perfLabAddr = new AddressType();
-			if (!requestMessage.getReport().getReportHeader().getPerfLabAddr().getAdress1().isEmpty()) {
+			if (StringUtils.hasText(requestMessage.getReport().getReportHeader().getPerfLabAddr().getAdress1())) {
 				perfLabAddr.setStreet(requestMessage.getReport().getReportHeader().getPerfLabAddr().getAdress1());
 			}
-			if (!requestMessage.getReport().getReportHeader().getPerfLabAddr().getAddress2().isEmpty()) {
+			if (StringUtils.hasText(requestMessage.getReport().getReportHeader().getPerfLabAddr().getAddress2())) {
 				perfLabAddr.setStreet2(requestMessage.getReport().getReportHeader().getPerfLabAddr().getAddress2());
 			}
-			if (!requestMessage.getReport().getReportHeader().getPerfLabAddr().getCity().isEmpty()) {
+			if (StringUtils.hasText(requestMessage.getReport().getReportHeader().getPerfLabAddr().getCity())) {
 				perfLabAddr.setCity(requestMessage.getReport().getReportHeader().getPerfLabAddr().getCity());
 			}
-			if (!requestMessage.getReport().getReportHeader().getPerfLabAddr().getStateCd().isEmpty()) {
+			if (StringUtils.hasText(requestMessage.getReport().getReportHeader().getPerfLabAddr().getStateCd())) {
 				perfLabAddr.setState(requestMessage.getReport().getReportHeader().getPerfLabAddr().getStateCd());
 			}
-			if (!requestMessage.getReport().getReportHeader().getPerfLabAddr().getZip().isEmpty()) {
+			if (StringUtils.hasText(requestMessage.getReport().getReportHeader().getPerfLabAddr().getZip())) {
 				perfLabAddr.setZip(requestMessage.getReport().getReportHeader().getPerfLabAddr().getZip());
 			}
 			labs.setAddress(perfLabAddr);
+			}
 		}
 
 		// Extract CLIA Id
@@ -1556,5 +1571,170 @@ public class InspireRequestGenerator {
 		return previousEncountersList;
 
 	}
+		
+		 public static void main(String[] args) throws JAXBException {
+			 
+			
+			 
+			 
+		}
+		 public Inspire getInspire() throws JAXBException {
+			 IrisResultsMessage irisResultsMessage = new IrisResultsMessage();
+			 irisResultsMessage.setEvent(EVENTTYPE.CASEPREVIEW);
+			 irisResultsMessage.setAccessionNum("3407983");
+			 irisResultsMessage.setReportNum("AFT24-000238");
+
+			 AccessionSpecimen reportSpecimen = new AccessionSpecimen();
+			 reportSpecimen.setSpecimenId("1726409");
+			 reportSpecimen.setClientSpecimenID("1");
+			 reportSpecimen.setSpecimenType("Peripheral Blood");
+			 reportSpecimen.setSpecimenTransportDescr("EDTA (Purple Top)");
+			 reportSpecimen.setFixativeDurationHH(0);
+			 reportSpecimen.setFixativeDurationMM(0);
+			 reportSpecimen.setSpecimenReceivedDateTime(DateConverter.getCurrentDate());
+			 reportSpecimen.setTimeToFixationHH(0);
+			 reportSpecimen.setTimeToFixationMM(0);
+			 
+			 List<AccessionSpecimen> accessionSpecimens=new ArrayList<AccessionSpecimen>();
+			 accessionSpecimens.add(reportSpecimen);
+			 irisResultsMessage.getReportSpecimen().addAll(accessionSpecimens);
+
+			 Panel panel = new Panel();
+			 panel.setCategoryName("Flow Cytometry");
+			 panel.setLabCorpTestCode("10000011");
+			 panel.setPanelName("Comprehensive Panel");
+			 panel.setServiceLvlCd("Global");
+			 panel.setTestPerfmdLoc("Phoenix");
+			 panel.setCaseNum("AFT24-000238");
+
+			 // PanelResults entries
+			 PanelResult panelResults1 = new PanelResult();
+			 panelResults1.setDisplayName("Myeloid Blasts");
+			 panelResults1.setParamName("BLAST_CHILD1_POP_DESC");
+			 panelResults1.setSeq(1);
+			 TestResultValue testResultValues1 = new TestResultValue();
+			 testResultValues1.setKey("FINDINGS");
+			 testResultValues1.setValue("No significant blast population detected");
+			 testResultValues1.setSeq(0);
+			 panelResults1.getTestResultValues().add(testResultValues1);
+
+			 PanelResult panelResults2 = new PanelResult();
+			 // set fields for panelResults2 similar to panelResults1
+
+			 // Repeat for other PanelResults
+			 // Add all panelResults to the panel
+			 panel.getPanelResults().addAll(Arrays.asList(panelResults1, panelResults2));
+
+			 // ReagentsUsed entries
+			 ReagentsUsed reagentsUsed1 = new ReagentsUsed();
+			 reagentsUsed1.setTestName("CD2");
+			 reagentsUsed1.setLabCorpTestCode("10000059");
+			 reagentsUsed1.setLegacyTestCode("7080");
+			 reagentsUsed1.setIsPref(true);
+			 reagentsUsed1.setIsBill(true);
+			 reagentsUsed1.setStatus("ORDERED");
+			 reagentsUsed1.setTestLocation("Phoenix");
+
+			 // Repeat for other ReagentsUsed
+			 // Add all reagentsUsed to the panel
+			 panel.getReagentsUsed().addAll(Arrays.asList(reagentsUsed1));
+
+			 irisResultsMessage.setPanel(panel);
+
+			 Report report = new Report();
+			 report.setTemplateId("LeukemiaLymphoma");
+			 report.setReportType("PREVIEW");
+			 report.setVersionNum(0);
+			 report.setReportStatus("READYFORANALYSIS");
+			 report.setMedicalDirDegree(" M.D., Medical Director");
+			 report.setMedicalDirFName("Sassan");
+			 report.setMedicalDirLName("Rostami");
+			 report.setLabInfoSystemCd("Integrated Oncology");
+			 report.setMdCliaNum("03D2054956");
+
+			 Address mdAddr = new Address();
+			 mdAddr.setAdress1("5005 S 40th St Ste 1100");
+			 mdAddr.setCity("Phoenix");
+			 mdAddr.setStateCd("AZ");
+			 mdAddr.setZip("85040-2969");
+			 mdAddr.setLabCode("ACCPH");
+			 report.setMdAddr(mdAddr);
+
+			 // ReportTexts entries
+			 ReportText reportTexts1 = new ReportText();
+			 reportTexts1.setKey(ReportTextType.MORPHOLOGICEVAL);
+			 reportTexts1.setValue("A slide was reviewed for quality control purposes only.");
+
+			 // Repeat for other ReportTexts
+			 // Add all reportTexts to the report
+			 report.getReportTexts().addAll(Arrays.asList(reportTexts1));
+
+			 ReportHeader reportHeader = new ReportHeader();
+			 reportHeader.setControlId("IO24121SO0002");
+			 reportHeader.setAccessionedBy("devin");
+			 reportHeader.setAccessionTmstp(DateConverter.getCurrentDate());
+			 reportHeader.setServiceTmstp(DateConverter.getCurrentDate());
+			 reportHeader.setAccessionedLoc("Irvine");
+			 reportHeader.setNpi("1093923583");
+			 reportHeader.setAccountName("EDI DEMO ACCOUNT1");
+			 reportHeader.setAccountNum("43983");
+			 reportHeader.setAccountPhone("9999999999");
+
+			 Address accountAddr = new Address();
+			 accountAddr.setAdress1("1 test drv st");
+			 accountAddr.setAddress2("1 TEST DRV");
+			 accountAddr.setCity("Irvine");
+			 accountAddr.setStateCd("CA");
+			 accountAddr.setZip("92612");
+			 reportHeader.setAccountAddr(accountAddr);
+
+			 reportHeader.setAccountFax("1231231234");
+			 reportHeader.setOrderingPhyFName("BRENT W");
+			 reportHeader.setOrderingPhyLName("ALLAIN JR");
+			 reportHeader.setOrderingPhyPhone("8881111111");
+			 reportHeader.setRegionName("W1SM");
+			 reportHeader.setTerritoryName("WEST");
+			 //reportHeader.setpDob("1978-05-03T00:00:00.000-04:00");
+
+			 DOB pAge = new DOB();
+			 pAge.setYear(45);
+			 pAge.setMonth(11);
+			 pAge.setDay(27);
+			 reportHeader.setPAge(pAge);
+
+			 reportHeader.setPGender("F");
+			 reportHeader.setMRN("7132158");
+			 reportHeader.setPFirstName("Today");
+			 reportHeader.setPLastName("Test");
+
+			 Address perfLabAddr = new Address();
+			 perfLabAddr.setAdress1("5005 S 40th St Ste 1100");
+			 perfLabAddr.setCity("Phoenix");
+			 perfLabAddr.setStateCd("AZ");
+			 perfLabAddr.setZip("85040-2969");
+			 perfLabAddr.setLabCode("ACCPH");
+			 reportHeader.setPerfLabAddr(perfLabAddr);
+
+			 report.setReportHeader(reportHeader);
+			 irisResultsMessage.setReport(report);
+
+			
+			 InspireRequestGenerator generator=new InspireRequestGenerator();
+			 
+			 Inspire inspire= generator.generateInspirePayload(irisResultsMessage);
+			 System.out.println(inspire.getAccessions().size()+"::acc");
+			 
+				/*
+				 * JAXBContext context = JAXBContext.newInstance(Inspire.class); Marshaller
+				 * marshaller = context.createMarshaller();
+				 * marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
+				 * 
+				 * // Convert Java object to XML StringWriter sw = new StringWriter();
+				 * marshaller.marshal(inspire, sw); String xmlString = sw.toString();
+				 * 
+				 * // Print the XML string System.out.println(xmlString);
+				 */
+				return inspire;
+		 }
 
 }
