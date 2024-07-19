@@ -15,6 +15,9 @@ public class IrisReportTransformer {
 	public static void main(String[] args) {
 		SpringApplication.run(IrisReportTransformer.class, args);
 		System.out.println("hai test@@@@");
+		System.out.println("QA");
+		
+		
 	}
 
 }
